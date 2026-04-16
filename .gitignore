@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# Models (large files — download on demand)
+models/
+*.pt
+*.pth
+*.onnx
+
+# Temp / intermediate files
+temp/
+*.wav
+
+# Outputs (generated — not source code)
+outputs/
+
+# Data (videos are large — store elsewhere)
+data/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Pytest cache
+.pytest_cache/
+
+# Test bytecode
+tests/__pycache__/
