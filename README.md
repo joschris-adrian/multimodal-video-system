@@ -1,25 +1,38 @@
 # Multimodal Video Analysis System
 
-Runs YOLOv8 object detection + Whisper speech transcription on a folder of
-videos and fuses the results into per-clip summaries. No ffmpeg binary required.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![YOLOv8](https://img.shields.io/badge/YOLOv8-ultralytics-purple)
+![Whisper](https://img.shields.io/badge/Whisper-openai-green)
+![License](https://img.shields.io/badge/license-MIT-brightgreen)
+
+A modular Python pipeline that runs object detection, scene classification,
+segmentation, and speech transcription on video files — fusing everything
+into structured per-clip summaries. No ffmpeg binary required.
+
+---
 
 ## Stack
 
-| Component  | Library          |
-|------------|------------------|
-| Detection  | YOLOv8 (ultralytics) |
-| Transcription | Whisper (openai-whisper) |
-| Frame I/O  | OpenCV           |
-| Audio I/O  | moviepy + scipy  |
-| Data       | pandas           |
+| Component            | Library                        |
+|----------------------|--------------------------------|
+| Object detection     | YOLOv8 (ultralytics)           |
+| Segmentation         | YOLOv8-seg (ultralytics)       |
+| Scene classification | EfficientNet-B0 (torchvision)  |
+| Transcription        | Whisper (openai-whisper)       |
+| Frame / audio I/O    | OpenCV + moviepy + scipy       |
+| Data                 | pandas                         |
+
+---
 
 ## Setup
 
 ```bash
-git clone <repo>
+git clone https://github.com/joschris-adrian/multimodal-video-system.git
 cd multimodal-video-system
 pip install -r requirements.txt
 ```
+
+---
 
 ## Usage
 
@@ -28,53 +41,135 @@ pip install -r requirements.txt
 python run_pipeline.py --input path/to/clip.mp4
 
 # whole folder
-python run_pipeline.py --input path/to/videos/
+python run_pipeline.py --input data/sample_videos
 ```
+
+---
 
 ## Output
 
 ```
 outputs/
-├── clip_summary.txt          ← vision + audio fusion per video
-├── whisper_report.csv        ← transcription quality for all clips
-└── annotated_frames/
-    └── clip/
-        ├── frame_00000.jpg   ← YOLOv8 bounding boxes drawn
-        ├── frame_00030.jpg
-        └── ...
+├── clip_summary.txt              ← structured fusion summary
+├── whisper_report.csv            ← transcription quality for all clips
+├── annotated_frames/clip/        ← YOLOv8 bounding boxes per frame
+└── segmented_frames/clip/        ← YOLOv8-seg masks per frame
 ```
 
 Example `clip_summary.txt`:
 
 ```
-FILE: clip.mp4
-Detected: person, car, dog
-Audio: I'm walking through the city.
-Empty frames: 4.2%
+FILE: v_Surfing_g22_c01.avi
+Summary: A person is playing in a sports venue.
+Detected: person, surfboard
+Scene: sports
+Audio: The idea was to get over there.
+Empty frames: 0.0%
+Scene timeline:
+  0–60: sports
+  60–90: beach
+Always present: person
 ```
+
+---
 
 ## Project Structure
 
 ```
 src/
-├── video/extract_frames.py   ← OpenCV frame extraction
-├── vision/detect_objects.py  ← YOLOv8 + temporal summary
-├── audio/transcribe.py       ← Whisper via moviepy (no ffmpeg)
-├── fusion/summarize.py       ← combines vision + audio
-└── utils/file_utils.py       ← shared helpers
+├── video/
+│   └── extract_frames.py         ← OpenCV frame extraction
+├── vision/
+│   ├── detect_objects.py         ← YOLOv8 detection + annotated frames
+│   ├── classify_scene.py         ← EfficientNet scene classification
+│   └── segment_objects.py        ← YOLOv8-seg masks for key objects
+├── temporal/
+│   └── aggregator.py             ← scene transitions, object persistence,
+│                                    event durations
+├── audio/
+│   └── transcribe.py             ← Whisper via moviepy (no ffmpeg)
+├── fusion/
+│   └── summarize.py              ← structured reasoning → one-liner summary
+└── utils/
+    └── file_utils.py             ← shared helpers
 ```
+
+---
+
+## How the fusion layer works
+
+Rather than just listing detected objects, the fusion layer reasons
+about what it sees:
+
+```
+subject     ← is there a person?
+environment ← what does the scene classifier say?
+action      ← what keywords appear in the transcript?
+
+→ "A person is walking in an urban street."
+```
+
+Scene is inferred from EfficientNet when confident, with object-based
+fallback when the classifier returns `unknown`.
+
+---
+
+## Temporal EDA
+
+The aggregator tracks what happens over time across frames:
+
+```
+--- Scene Timeline ---
+  Frame     0–60  │ sports
+  Frame    60–90  │ beach
+
+--- Object Persistence ---
+  person               100.0%  ████████████████████
+  surfboard             66.7%  █████████████
+
+Always present:  person
+Briefly seen:    bird
+```
+
+---
 
 ## Tests
 
 ```bash
+pip install pytest
 pytest tests/ -v
+
+# run a specific section
+pytest tests/ -v -k "temporal"
+pytest tests/ -v -k "scene"
+pytest tests/ -v -k "not video"   # skip slow video tests
 ```
 
-Tests use a synthetic video generated by OpenCV - no real video files needed.
+35 tests covering all modules. The test suite uses a synthetic video
+generated by OpenCV — no real video files needed.
+
+---
+
+## Models
+
+All models download automatically on first run.
+
+| Model            | Size  | Purpose               |
+|------------------|-------|-----------------------|
+| `yolov8n.pt`     | 6 MB  | Object detection      |
+| `yolov8n-seg.pt` | 7 MB  | Segmentation          |
+| EfficientNet-B0  | 21 MB | Scene classification  |
+| Whisper `base`   | 74 MB | Speech transcription  |
+
+Swap detection/segmentation to `yolov8s` or `yolov8m` for better
+accuracy. Swap Whisper to `small` or `medium` for better transcription.
+
+---
 
 ## Notes
 
-- Models download automatically on first run (`yolov8n.pt`, Whisper `base`)
-- Change `every_n` in `detect_objects()` to control frame sampling rate
-- Swap `yolov8n.pt` → `yolov8s.pt` / `yolov8m.pt` for better accuracy
-- Swap Whisper `base` → `small` / `medium` for better transcription
+- `every_n=30` samples 1 frame per second at 30fps — adjust to trade
+  speed vs. coverage
+- `data/` and `outputs/` are excluded from git — videos are large,
+  outputs are generated
+- Models are excluded from git — they download on demand
