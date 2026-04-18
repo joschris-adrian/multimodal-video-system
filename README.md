@@ -3,24 +3,29 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![YOLOv8](https://img.shields.io/badge/YOLOv8-ultralytics-purple)
 ![Whisper](https://img.shields.io/badge/Whisper-openai-green)
+![Streamlit](https://img.shields.io/badge/UI-Streamlit-red)
 ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 
 A modular Python pipeline that runs object detection, scene classification,
-segmentation, and speech transcription on video files — fusing everything
-into structured per-clip summaries. No ffmpeg binary required.
+segmentation, speech transcription, object tracking, and image generation on
+video files — fusing everything into structured per-clip summaries.
+No ffmpeg binary required.
 
 ---
 
 ## Stack
 
-| Component            | Library                        |
-|----------------------|--------------------------------|
-| Object detection     | YOLOv8 (ultralytics)           |
-| Segmentation         | YOLOv8-seg (ultralytics)       |
-| Scene classification | EfficientNet-B0 (torchvision)  |
-| Transcription        | Whisper (openai-whisper)       |
-| Frame / audio I/O    | OpenCV + moviepy + scipy       |
-| Data                 | pandas                         |
+| Component            | Library                       |
+|----------------------|-------------------------------|
+| Object detection     | YOLOv8 (ultralytics)          |
+| Segmentation         | YOLOv8-seg (ultralytics)      |
+| Scene classification | EfficientNet-B0 (torchvision) |
+| Transcription        | Whisper (openai-whisper)      |
+| Object tracking      | IoU tracker (custom)          |
+| Image generation     | Stable Diffusion (diffusers)  |
+| UI                   | Streamlit                     |
+| Frame / audio I/O    | OpenCV + moviepy + scipy      |
+| Data                 | pandas                        |
 
 ---
 
@@ -36,6 +41,16 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Streamlit UI
+
+```bash
+streamlit run app.py
+```
+
+Opens at `http://localhost:8501`. Upload any video and hit **Run Analysis**.
+
+### CLI
+
 ```bash
 # single video
 python run_pipeline.py --input path/to/clip.mp4
@@ -46,6 +61,24 @@ python run_pipeline.py --input data/sample_videos
 
 ---
 
+## UI
+
+Upload any video and hit **Run Analysis**. The app runs the full pipeline
+and displays all results inline.
+
+| Section             | Content                                       |
+|---------------------|-----------------------------------------------|
+| Summary             | One-liner + full fusion output                |
+| Transcript          | Whisper text + quality badge                  |
+| Object persistence  | Progress bars per detected object             |
+| Annotated frames    | YOLOv8 bounding boxes, 6 sampled frames       |
+| Segmented frames    | Mask overlays for person/car, 4 frames        |
+| Scene timeline      | Frame ranges + scene labels                   |
+| Tracking video      | Playable video with persistent track IDs      |
+| Generated image     | Stable Diffusion output from pipeline summary |
+
+---
+
 ## Output
 
 ```
@@ -53,14 +86,16 @@ outputs/
 ├── clip_summary.txt              ← structured fusion summary
 ├── whisper_report.csv            ← transcription quality for all clips
 ├── annotated_frames/clip/        ← YOLOv8 bounding boxes per frame
-└── segmented_frames/clip/        ← YOLOv8-seg masks per frame
+├── segmented_frames/clip/        ← YOLOv8-seg masks per frame
+├── tracked.mp4                   ← video with persistent track IDs
+└── generated.png                 ← Stable Diffusion image
 ```
 
 Example `clip_summary.txt`:
 
 ```
 FILE: v_Surfing_g22_c01.avi
-Summary: A person is playing in a sports venue.
+Summary: A person is surfing in a sports venue.
 Detected: person, surfboard
 Scene: sports
 Audio: The idea was to get over there.
@@ -69,6 +104,89 @@ Scene timeline:
   0–60: sports
   60–90: beach
 Always present: person
+```
+
+---
+
+## How the fusion layer works
+
+Rather than just listing detected objects, the fusion layer reasons
+about what it sees:
+
+```
+subject     ← is there a person in the detections?
+environment ← what does the scene classifier say?
+action      ← what keywords appear in the transcript?
+
+→ "A person is walking in an urban street."
+```
+
+Scene is inferred from EfficientNet when confident, with an
+object-based fallback when the classifier returns `unknown`.
+
+---
+
+## Image Generation
+
+The system builds a Stable Diffusion prompt automatically from
+pipeline outputs — no manual prompt writing needed.
+
+```
+subject     ← "A person" if person detected, else "A scene"
+action      ← matched from transcript keywords, then from detected objects
+environment ← from scene classifier, with object-based fallback
+```
+
+Examples:
+
+```
+objects=["person", "hair drier"]   → "A person getting a blowdry in a modern indoor room"
+objects=["person", "surfboard"]    → "A person surfing in a sports venue"
+transcript="She was walking fast"  → "A person walking in an urban street"
+```
+
+Runs locally via `stabilityai/sd-turbo` (4 steps, CPU-friendly).
+Alternatively swap to the Hugging Face Inference API for instant
+results without local compute — get a free token at
+`huggingface.co/settings/tokens`.
+
+---
+
+## Object Tracking
+
+A lightweight IoU-based tracker assigns persistent IDs to objects
+across frames — no additional dependencies needed.
+
+```
+person #0 ── tracked across 42 frames
+person #1 ── appeared at frame 90, tracked for 18 frames
+car    #2 ── tracked across 60 frames
+```
+
+Enable in the Streamlit sidebar or call directly:
+
+```python
+from src.tracking.track_objects import track_video
+track_video("clip.mp4", "outputs/tracked.mp4")
+```
+
+---
+
+## Temporal EDA
+
+The aggregator tracks what happens over time across sampled frames:
+
+```
+--- Scene Timeline ---
+  Frame     0–60  │ sports
+  Frame    60–90  │ beach
+
+--- Object Persistence ---
+  person               100.0%  ████████████████████
+  surfboard             66.7%  █████████████
+
+Always present:  person
+Briefly seen:    bird
 ```
 
 ---
@@ -90,45 +208,14 @@ src/
 │   └── transcribe.py             ← Whisper via moviepy (no ffmpeg)
 ├── fusion/
 │   └── summarize.py              ← structured reasoning → one-liner summary
+├── generation/
+│   └── generate_image.py         ← Stable Diffusion prompt builder + inference
+├── tracking/
+│   └── track_objects.py          ← IoU tracker with persistent IDs
 └── utils/
     └── file_utils.py             ← shared helpers
-```
-
----
-
-## How the fusion layer works
-
-Rather than just listing detected objects, the fusion layer reasons
-about what it sees:
-
-```
-subject     ← is there a person?
-environment ← what does the scene classifier say?
-action      ← what keywords appear in the transcript?
-
-→ "A person is walking in an urban street."
-```
-
-Scene is inferred from EfficientNet when confident, with object-based
-fallback when the classifier returns `unknown`.
-
----
-
-## Temporal EDA
-
-The aggregator tracks what happens over time across frames:
-
-```
---- Scene Timeline ---
-  Frame     0–60  │ sports
-  Frame    60–90  │ beach
-
---- Object Persistence ---
-  person               100.0%  ████████████████████
-  surfboard             66.7%  █████████████
-
-Always present:  person
-Briefly seen:    bird
+app.py                            ← Streamlit UI
+run_pipeline.py                   ← CLI entrypoint
 ```
 
 ---
@@ -139,13 +226,15 @@ Briefly seen:    bird
 pip install pytest
 pytest tests/ -v
 
-# run a specific section
-pytest tests/ -v -k "temporal"
-pytest tests/ -v -k "scene"
-pytest tests/ -v -k "not video"   # skip slow video tests
+# run specific sections
+pytest tests/ -v -k "temporal"       # aggregator tests
+pytest tests/ -v -k "scene"          # scene classification tests
+pytest tests/ -v -k "prompt"         # image generation prompt tests
+pytest tests/ -v -k "tracker"        # tracking tests
+pytest tests/ -v -k "not video"      # skip slow video tests
 ```
 
-35 tests covering all modules. The test suite uses a synthetic video
+53 tests covering all modules. The test suite uses a synthetic video
 generated by OpenCV — no real video files needed.
 
 ---
@@ -154,12 +243,13 @@ generated by OpenCV — no real video files needed.
 
 All models download automatically on first run.
 
-| Model            | Size  | Purpose               |
-|------------------|-------|-----------------------|
-| `yolov8n.pt`     | 6 MB  | Object detection      |
-| `yolov8n-seg.pt` | 7 MB  | Segmentation          |
-| EfficientNet-B0  | 21 MB | Scene classification  |
-| Whisper `base`   | 74 MB | Speech transcription  |
+| Model            | Size  | Purpose              |
+|------------------|-------|----------------------|
+| `yolov8n.pt`     | 6 MB  | Object detection     |
+| `yolov8n-seg.pt` | 7 MB  | Segmentation         |
+| EfficientNet-B0  | 21 MB | Scene classification |
+| Whisper `base`   | 74 MB | Transcription        |
+| SD-Turbo         | ~3 GB | Image generation     |
 
 Swap detection/segmentation to `yolov8s` or `yolov8m` for better
 accuracy. Swap Whisper to `small` or `medium` for better transcription.
@@ -168,8 +258,10 @@ accuracy. Swap Whisper to `small` or `medium` for better transcription.
 
 ## Notes
 
-- `every_n=30` samples 1 frame per second at 30fps — adjust to trade
-  speed vs. coverage
+- `every_n=30` samples 1 frame per second at 30fps — adjust in the
+  sidebar to trade speed vs. coverage
+- Image generation is disabled by default in the UI — enable in the
+  sidebar when needed (takes ~2–4 min on CPU)
 - `data/` and `outputs/` are excluded from git — videos are large,
   outputs are generated
 - Models are excluded from git — they download on demand

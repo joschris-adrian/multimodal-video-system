@@ -5,3 +5,9 @@ moviepy
 scipy
 pandas
 stable-ts
+torchvision
+streamlit
+diffusers
+accelerate
+transformers
+sentencepiece
