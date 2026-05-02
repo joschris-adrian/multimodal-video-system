@@ -21,20 +21,20 @@ def run(video_path):
 
     print(f"\n{'='*55}\nProcessing: {name}\n{'='*55}")
 
-    # 1. Object detection
+    # Object detection
     print("- Running YOLOv8 detection...")
     detections = detect_objects(video_path, every_n=30)
 
-    # 2. Scene classification
+    # Scene classification
     print("- Running scene classification...")
     scene_rows = classify_video(video_path, every_n=30)
 
-    # 3. Segmentation (key objects only)
+    # Segmentation (key objects only)
     print("- Running segmentation...")
     seg_out = os.path.join("outputs", "segmented_frames", stem)
     segment_video(video_path, seg_out, every_n=30)
 
-    # 4. Temporal aggregation
+    # Temporal aggregation
     transitions  = get_scene_transitions(scene_rows)
     object_stats = get_object_stats(detections)
     person_events = get_event_durations(detections, "person", fps=fps)
@@ -46,12 +46,12 @@ def run(video_path):
         for e in person_events:
             print(f"  {e['start_sec']}s → {e['end_sec']}s  ({e['duration_sec']}s)")
 
-    # 5. Transcription
+    # Transcription
     print("\n- Running Whisper...")
     audio  = transcribe_video(video_path)
     print(f"  Transcript: {audio['transcript'] or '[no speech]'}")
 
-    # 6. Fusion
+    # Fusion
     summary = generate_summary(
         video_name     = name,
         detection_rows = detections,
@@ -62,7 +62,7 @@ def run(video_path):
     )
     print(f"\n{summary}")
 
-    # 7. Save
+    # Save
     out_file = os.path.join("outputs", f"{stem}_summary.txt")
     with open(out_file, "w") as f:
         f.write(summary)
