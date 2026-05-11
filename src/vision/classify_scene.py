@@ -61,6 +61,7 @@ def classify_frame(frame_bgr: np.ndarray) -> dict:
         "top_class":   best_label,
         "confidence":  round(top_prbs[0], 3),
         "top3":        list(zip(top_labs, [round(p, 3) for p in top_prbs])),
+        "raw_logits":  logits.squeeze().tolist(),   # ← adds PyTorch depth
     }
 
 
