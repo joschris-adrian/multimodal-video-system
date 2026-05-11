@@ -26,21 +26,32 @@ def run(video_path, nlp_results=None):
     print(f"\n{'='*55}\nProcessing: {name}\n{'='*55}")
 
     # Object detection
-    print("▶ Running YOLOv8 detection...")
+    print("- Running YOLOv8 detection...")
     detections = detect_objects(video_path, every_n=30)
 
     # Scene classification
-    print("▶ Running scene classification...")
+    print("- Running scene classification...")
     scene_rows = classify_video(video_path, every_n=30)
 
     # Segmentation
-    print("▶ Running segmentation...")
+    print("- Running segmentation...")
+    print("- Running YOLOv8 detection...")
+    detections = detect_objects(video_path, every_n=30)
+
+    # Scene classification
+    print("- Running scene classification...")
+    scene_rows = classify_video(video_path, every_n=30)
+
+    # Segmentation (key objects only)
+    print("- Running segmentation...")
     seg_out = os.path.join("outputs", "segmented_frames", stem)
     segment_video(video_path, seg_out, every_n=30)
 
     # Temporal aggregation
     transitions   = get_scene_transitions(scene_rows)
     object_stats  = get_object_stats(detections)
+    transitions  = get_scene_transitions(scene_rows)
+    object_stats = get_object_stats(detections)
     person_events = get_event_durations(detections, "person", fps=fps)
 
     print_temporal_report(transitions, object_stats)
@@ -51,18 +62,22 @@ def run(video_path, nlp_results=None):
             print(f"  {e['start_sec']}s → {e['end_sec']}s ({e['duration_sec']}s)")
 
     # Transcription
-    print("\n▶ Running Whisper...")
+    print("\n- Running Whisper...")
     audio = transcribe_video(video_path)
     print(f"  Transcript: {audio['transcript'] or '[no speech]'}")
 
     # NLP analysis
-    print("▶ Running NLP analysis...")
+    print("- Running NLP analysis...")
     nlp = nlp_results.get(name) if nlp_results else analyze_transcript(audio["transcript"])
 
     print(f"  Sentiment: {nlp['sentiment']['label']} ({nlp['sentiment']['score']})")
     print(f"  Keywords:  {', '.join(nlp['keywords']) or 'none'}")
     if nlp.get("topic"):
         print(f"  Topic:     {', '.join(nlp['topic']['words'][:4])}")
+
+    print("\n- Running Whisper...")
+    audio  = transcribe_video(video_path)
+    print(f"  Transcript: {audio['transcript'] or '[no speech]'}")
 
     # Fusion
     summary = generate_summary(
@@ -98,7 +113,7 @@ if __name__ == "__main__":
         video_paths = list_videos(args.input)
 
     # corpus-level NLP (train once across all transcripts) 
-    print("\n▶ Collecting transcripts for corpus-level NLP...")
+    print("\n- Collecting transcripts for corpus-level NLP...")
     all_transcripts = {}
     for path in video_paths:
         name  = os.path.basename(path)
@@ -131,3 +146,5 @@ if __name__ == "__main__":
     # run full pipeline per video 
     for path in video_paths:
         run(path, nlp_results=nlp_results)
+        for path in list_videos(args.input):
+            run(path)
