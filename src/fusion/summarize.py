@@ -141,3 +141,120 @@ def generate_summary(
     )
 
     return summary
+
+
+# ── Fusion dispatcher ────────────────────────────────────────────────────────
+
+def fuse(
+    video_name: str,
+    detection_rows: list[dict],
+    transcript: str,
+    frame_paths: list[str] | None = None,
+    scene_rows: list[dict] | None = None,
+    transitions: list[dict] | None = None,
+    object_stats: dict | None = None,
+    nlp: dict | None = None,
+    mode: str = "rule-based",
+    model_key: str = "qwen2-vl-2b",
+) -> str:
+    """
+    Dispatch to the appropriate fusion backend.
+
+    Args:
+        video_name: Video file name.
+        detection_rows: YOLOv8 detection results.
+        transcript: Whisper transcript.
+        frame_paths: Paths to sampled frame images (required for video-llm).
+        scene_rows: Scene classification results.
+        transitions: Scene transition data.
+        object_stats: Object persistence statistics.
+        nlp: NLP analysis results.
+        mode: "rule-based" or "video-llm".
+        model_key: Model key for video-llm mode.
+
+    Returns:
+        Formatted summary string.
+
+    Raises:
+        ValueError: If mode is invalid.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+
+    if mode == "rule-based":
+        return generate_summary(
+            video_name=video_name,
+            detection_rows=detection_rows,
+            transcript=transcript,
+            scene_rows=scene_rows,
+            transitions=transitions,
+            object_stats=object_stats,
+            nlp=nlp,
+        )
+
+    elif mode == "video-llm":
+        from src.fusion.video_llm import generate_llm_summary
+
+        if not frame_paths:
+            log.warning(
+                "video-llm mode requested but no frame_paths provided. "
+                "Falling back to rule-based fusion."
+            )
+            return generate_summary(
+                video_name=video_name,
+                detection_rows=detection_rows,
+                transcript=transcript,
+                scene_rows=scene_rows,
+                transitions=transitions,
+                object_stats=object_stats,
+                nlp=nlp,
+            )
+
+        try:
+            return generate_llm_summary(
+                video_name=video_name,
+                detection_rows=detection_rows,
+                transcript=transcript,
+                frame_paths=frame_paths,
+                scene_rows=scene_rows,
+                transitions=transitions,
+                object_stats=object_stats,
+                nlp=nlp,
+                model_key=model_key,
+            )
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower() or "insufficient" in str(e).lower():
+                log.error(
+                    f"Video-LLM OOM or insufficient RAM, "
+                    f"falling back to rule-based: {e}"
+                )
+            else:
+                log.error(
+                    f"Video-LLM failed, falling back to rule-based: {e}"
+                )
+            return generate_summary(
+                video_name=video_name,
+                detection_rows=detection_rows,
+                transcript=transcript,
+                scene_rows=scene_rows,
+                transitions=transitions,
+                object_stats=object_stats,
+                nlp=nlp,
+            )
+        except Exception as e:
+            log.error(f"Video-LLM failed, falling back to rule-based: {e}")
+            return generate_summary(
+                video_name=video_name,
+                detection_rows=detection_rows,
+                transcript=transcript,
+                scene_rows=scene_rows,
+                transitions=transitions,
+                object_stats=object_stats,
+                nlp=nlp,
+            )
+
+    else:
+        raise ValueError(
+            f"Unknown fusion mode: {mode!r}. "
+            f"Choose from: 'rule-based', 'video-llm'"
+        )

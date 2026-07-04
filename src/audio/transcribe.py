@@ -1,11 +1,34 @@
 import whisper
 import os
+import gc
 import pandas as pd
 from moviepy import VideoFileClip
 import numpy as np
 import scipy.io.wavfile as wav
 
 model = whisper.load_model("base")
+
+
+def unload_model():
+    """Free the Whisper model from memory. Safe to call multiple times.
+
+    The model will be re-loaded automatically on the next call to
+    transcribe_video() or transcribe_folder().
+    """
+    global model
+    if model is not None:
+        del model
+        model = None
+        gc.collect()
+
+
+def _ensure_model():
+    """Re-load Whisper if it was unloaded. Called internally before use."""
+    global model
+    if model is None:
+        model = whisper.load_model("base")
+    return model
+
 
 def extract_audio_array(video_path, sr=16000):
     """Extract audio as numpy array via moviepy. No ffmpeg binary needed."""
@@ -36,7 +59,8 @@ def transcribe_video(video_path):
     if audio is None:
         return {"has_speech": False, "word_count": 0, "transcript": "", "quality": "no_audio"}
 
-    result   = model.transcribe(audio, verbose=False)
+    m = _ensure_model()
+    result   = m.transcribe(audio, verbose=False)
     text     = result["text"].strip()
     segments = result.get("segments", [])
     num_segs = len(segments)
@@ -74,4 +98,3 @@ def transcribe_folder(video_dir):
     df.to_csv("outputs/whisper_report.csv", index=False)
     print(f"\nSaved → outputs/whisper_report.csv")
     return df
-

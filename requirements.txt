@@ -9,5 +9,6 @@ torchvision
 streamlit
 diffusers
 accelerate
-transformers
+transformers>=4.40
 sentencepiece
+qwen-vl-utils
